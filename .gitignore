@@ -1,0 +1,10 @@
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+
+# Ignore Google Credentials (SECURITY)
+*.json
+
+# Ignore virtual environments
+venv/
+.env
