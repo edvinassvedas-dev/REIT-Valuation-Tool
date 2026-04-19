@@ -127,4 +127,4 @@ NAV should carry more weight when the portfolio consists of readily appraised as
 
 ## License
 
-Personal project. Not intended for commercial use or redistribution.
+MIT
