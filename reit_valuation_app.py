@@ -16,6 +16,7 @@ os.makedirs(DB_DIR, exist_ok=True)
 def _analysis_path(name: str) -> str:
     """Return the file path for a given analysis name."""
     safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in name)
+    safe = os.path.basename(safe)  # strip any path traversal components
     return os.path.join(DB_DIR, f"{safe}.json")
 
 
@@ -88,13 +89,15 @@ def upside_pct(intrinsic, market):
 
 
 def weighted_avg(ddm_p, affo_p, nav_p, w_ddm, w_affo, w_nav):
-    """Weighted average of available prices. Skips None values proportionally."""
+    """Weighted average of available prices. Skips None values proportionally.
+    Returns (result, renormalized) where renormalized is True if any model was skipped."""
     pairs = [(p, w) for p, w in [(ddm_p, w_ddm), (affo_p, w_affo), (nav_p, w_nav)]
              if p is not None]
     total_w = sum(w for _, w in pairs)
+    renormalized = len(pairs) < 3  # at least one model was skipped
     if total_w == 0:
-        return None
-    return sum(p * w for p, w in pairs) / total_w
+        return None, False
+    return sum(p * w for p, w in pairs) / total_w, renormalized
 
 
 # ── Database helpers ───────────────────────────────────────────────────────────
@@ -132,7 +135,7 @@ _META = {
 def load_database():
     """Load all analyses from the reit_db directory. Keys starting with '_' are ignored."""
     files = sorted(glob.glob(os.path.join(DB_DIR, "*.json")))
-    database = []
+    database, skipped_files = [], []
     for filepath in files:
         try:
             with open(filepath, "r", encoding="utf-8") as fh:
@@ -140,8 +143,15 @@ def load_database():
             # Strip meta/comment keys so they never reach the GUI
             record = {k: v for k, v in raw.items() if not k.startswith("_")}
             database.append(record)
-        except Exception:
-            pass  # skip corrupt or unreadable files silently
+        except Exception as e:
+            print(f"[load_database] Skipping '{filepath}': {e}", flush=True)
+            skipped_files.append(os.path.basename(filepath))
+    if skipped_files:
+        sg.popup_error(
+            "The following files could not be loaded and were skipped:\n\n"
+            + "\n".join(f"  • {f}" for f in skipped_files),
+            title="Database Load Warning",
+        )
     names = [a.get("analysis_name", "N/A") for a in database]
     return database, names
 
@@ -262,7 +272,10 @@ CAP_SENS_KEYS  = [
 
 # ── GUI layout ─────────────────────────────────────────────────────────────────
 
-sg.theme("Reddit")
+try:
+    sg.theme("Reddit")
+except Exception:
+    sg.theme("Default1")  # safe fallback if Reddit theme is unavailable
 
 LBL = 22
 INP = 10
@@ -693,13 +706,22 @@ while True:
                 else:
                     window[pk].update("—"); window[uk].update("—")
 
+            renorm_warned = False
             for sc_label, ddm_p, affo_p in [
                 ("WORST", ddm_worst_price, affo_worst_price),
                 ("BASE",  ddm_base_price,  affo_base_price),
                 ("BEST",  ddm_best_price,  affo_best_price),
             ]:
                 nav_p  = nav_price
-                wavg_p = weighted_avg(ddm_p, affo_p, nav_p, w_ddm, w_affo, w_nav)
+                wavg_p, renormalized = weighted_avg(ddm_p, affo_p, nav_p, w_ddm, w_affo, w_nav)
+                if renormalized and not renorm_warned:
+                    sg.popup(
+                        "Note: One or more models returned no result.\n"
+                        "The weighted average has been renormalized across the remaining models.\n"
+                        "Your original weight split may no longer apply.",
+                        title="Weight Renormalized",
+                    )
+                    renorm_warned = True
                 update_sum_cell(f"-SUM_{sc_label}_DDM-",  f"-SUM_{sc_label}_DDM_U-",  ddm_p)
                 update_sum_cell(f"-SUM_{sc_label}_AFFO-", f"-SUM_{sc_label}_AFFO_U-", affo_p)
                 update_sum_cell(f"-SUM_{sc_label}_NAV-",  f"-SUM_{sc_label}_NAV_U-",  nav_p)
