@@ -493,6 +493,7 @@ saved_col = [
     ],
     [
         sg.Button("Open File",       disabled=True, key="-OPEN_FILE-"),
+        sg.Button("Open Folder",     key="-OPEN_DIR-"),
     ],
 ]
 
@@ -824,5 +825,16 @@ while True:
                     sg.popup_error(f"Could not open file: {e}")
             else:
                 sg.popup_error(f"File not found: {path}")
+    # ── Open Folder ────────────────────────────────────────────────────────────
+    elif event == "-OPEN_DIR-":
+        try:
+            if sys.platform == "win32":
+                os.startfile(DB_DIR)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", DB_DIR])
+            else:
+                subprocess.Popen(["xdg-open", DB_DIR])
+        except Exception as e:
+            sg.popup_error(f"Could not open folder: {e}")
 
 window.close()
